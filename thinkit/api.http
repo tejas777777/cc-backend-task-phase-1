@@ -1,0 +1,126 @@
+@baseUrl = http://localhost:8000/api
+
+### Obtain a JWT access/refresh token pair
+# @name login
+POST {{baseUrl}}/token/
+Content-Type: application/json
+
+{
+    "username": "teju1",
+    "password": "tejaspassword"
+}
+
+###
+
+@accessToken = {{login.response.body.$.access}}
+
+### ==================== Wallet ====================
+
+### List wallets
+GET {{baseUrl}}/wallets/
+Authorization: Bearer {{accessToken}}
+
+### Create a wallet
+POST {{baseUrl}}/wallets/
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+    "username": "Rajesh",
+    "balance": 700,
+    "currency": "INR"
+}
+
+### Retrieve a single wallet (replace 1 with a real id)
+GET {{baseUrl}}/wallets/1/
+Authorization: Bearer {{accessToken}}
+
+### Update a wallet
+PUT {{baseUrl}}/wallets/10/
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+    "username": "Rajesh",
+    "balance": 3000,
+    "currency": "INR"
+}
+
+### Delete a wallet
+DELETE {{baseUrl}}/wallets/10/
+Authorization: Bearer {{accessToken}}
+
+### ==================== Item ====================
+
+### List items
+GET {{baseUrl}}/items/
+Authorization: Bearer {{accessToken}}
+
+### Create an item
+POST {{baseUrl}}/items/
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+    "name": "Fiama bath soap",
+    "description": "Fiama mens bath soap 125g",
+    "price": "65",
+    "category": "Toileteries",
+    "stock": 5,
+    "unit": "pieces"
+}
+
+### Retrieve a single item (replace 1 with a real id)
+GET {{baseUrl}}/items/1/
+Authorization: Bearer {{accessToken}}
+
+### Update an item
+PUT {{baseUrl}}/items/1/
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+    "name": "Rice",
+    "description": "Basmati rice",
+    "price": "125.00",
+    "category": "Groceries",
+    "stock": 15,
+    "unit": "kg"
+}
+
+### Delete an item
+DELETE {{baseUrl}}/items/2/
+Authorization: Bearer {{accessToken}}
+
+### ==================== Cart ====================
+
+### View current user's cart (with computed total price)
+GET {{baseUrl}}/cart/
+Authorization: Bearer {{accessToken}}
+
+### Add an item to the cart (quantities are cumulative; capped at item stock)
+POST {{baseUrl}}/cart/items/
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+    "item_id": 1,
+    "quantity": 3
+}
+
+### Update the quantity of an item already in the cart (replace 1 with the item id)
+PATCH {{baseUrl}}/cart/items/1/
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+    "quantity": 5
+}
+
+### Remove a single item from the cart (replace 1 with the item id)
+DELETE {{baseUrl}}/cart/items/1/
+Authorization: Bearer {{accessToken}}
+
+### Clear the entire cart
+DELETE {{baseUrl}}/cart/
+Authorization: Bearer {{accessToken}}

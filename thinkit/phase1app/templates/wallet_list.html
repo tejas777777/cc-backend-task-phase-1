@@ -1,0 +1,18 @@
+
+<h2>Wallet Directory</h2>
+<a href="{% url 'wallet_create' %}">Add New Wallet</a>
+<table border="1">
+    <tr>
+        <th>Username</th><th>Balance</th><th>Actions</th>
+    </tr>
+    {% for wallet in wallets %}
+    <tr>
+        <td>{{ wallet.username }}</td>
+        <td>${{ wallet.balance }}</td>
+        <td>
+            <a href="{% url 'wallet_update' wallet.pk %}">Edit</a>
+            <a href="{% url 'wallet_delete' wallet.pk %}">Delete</a>
+        </td>
+    </tr>
+    {% endfor %}
+</table>

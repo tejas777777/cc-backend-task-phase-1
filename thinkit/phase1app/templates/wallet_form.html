@@ -1,0 +1,8 @@
+
+<h2>{{ action }} Wallet</h2>
+<form method="POST">
+    {% csrf_token %}
+    {{ form.as_p }}
+    <button type="submit">Save Changes</button>
+</form>
+<a href="{% url 'wallet_list' %}">Cancel</a>

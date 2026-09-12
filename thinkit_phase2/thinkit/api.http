@@ -1,0 +1,177 @@
+@baseUrl = http://localhost:8000/api
+
+### ==================== Auth ====================
+
+### Sign up a buyer
+POST {{baseUrl}}/auth/signup/
+Content-Type: application/json
+
+{
+    "username": "priya",
+    "password": "priyapassword",
+    "role": "buyer"
+}
+
+### Sign up a seller
+POST {{baseUrl}}/auth/signup/
+Content-Type: application/json
+
+{
+    "username": "rajesh",
+    "password": "rajeshpassword",
+    "role": "seller"
+}
+
+### Obtain a JWT access/refresh token pair (buyer)
+# @name login
+POST {{baseUrl}}/token/
+Content-Type: application/json
+
+{
+    "username": "priya",
+    "password": "priyapassword"
+}
+
+###
+
+@accessToken = {{login.response.body.$.access}}
+
+### Obtain a JWT access/refresh token pair (seller)
+# @name sellerLogin
+POST {{baseUrl}}/token/
+Content-Type: application/json
+
+{
+    "username": "rajesh",
+    "password": "rajeshpassword"
+}
+
+###
+
+@sellerAccessToken = {{sellerLogin.response.body.$.access}}
+
+### Who am I
+GET {{baseUrl}}/auth/me/
+Authorization: Bearer {{accessToken}}
+
+### ==================== Wallet (buyer only) ====================
+
+### View my wallet balance
+GET {{baseUrl}}/wallet/
+Authorization: Bearer {{accessToken}}
+
+### Top up my wallet (simulated)
+POST {{baseUrl}}/wallet/topup/
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+    "amount": "1000.00"
+}
+
+### ==================== Item ====================
+
+### List / search / filter / sort items (any authenticated user)
+GET {{baseUrl}}/items/?search=rice&category=Groceries&min_price=10&max_price=300&in_stock=true&ordering=-average_rating
+Authorization: Bearer {{accessToken}}
+
+### Create an item (seller only; seller is set from the token, not the body)
+# @name createItem
+POST {{baseUrl}}/items/
+Content-Type: application/json
+Authorization: Bearer {{sellerAccessToken}}
+
+{
+    "name": "Fiama bath soap",
+    "description": "Fiama mens bath soap 125g",
+    "price": "65",
+    "category": "Toiletries",
+    "stock": 5,
+    "unit": "pieces"
+}
+
+###
+
+@itemId = {{createItem.response.body.$.id}}
+
+### Retrieve a single item
+GET {{baseUrl}}/items/{{itemId}}/
+Authorization: Bearer {{accessToken}}
+
+### Update an item (seller only, must be the owning seller)
+PATCH {{baseUrl}}/items/{{itemId}}/
+Content-Type: application/json
+Authorization: Bearer {{sellerAccessToken}}
+
+{
+    "stock": 15
+}
+
+### Delete an item (seller only, must be the owning seller)
+DELETE {{baseUrl}}/items/{{itemId}}/
+Authorization: Bearer {{sellerAccessToken}}
+
+### ==================== Reviews (buyer only, must have purchased) ====================
+
+### List reviews for an item
+GET {{baseUrl}}/items/{{itemId}}/reviews/
+Authorization: Bearer {{accessToken}}
+
+### Rate/review an item (creates on first call, edits on re-rate)
+POST {{baseUrl}}/items/{{itemId}}/reviews/
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+    "rating": 5,
+    "review_text": "Great product!"
+}
+
+### ==================== Seller dashboard ====================
+
+### My inventory (own items only, with low-stock flag)
+GET {{baseUrl}}/seller/items/
+Authorization: Bearer {{sellerAccessToken}}
+
+### Orders placed for my items
+GET {{baseUrl}}/seller/orders/
+Authorization: Bearer {{sellerAccessToken}}
+
+### ==================== Cart (buyer only) ====================
+
+### View current user's cart (with computed total price)
+GET {{baseUrl}}/cart/
+Authorization: Bearer {{accessToken}}
+
+### Add an item to the cart (quantities are cumulative; capped at item stock)
+POST {{baseUrl}}/cart/items/
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+    "item_id": 1,
+    "quantity": 3
+}
+
+### Update the quantity of an item already in the cart (replace 1 with the item id)
+PATCH {{baseUrl}}/cart/items/1/
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+    "quantity": 5
+}
+
+### Remove a single item from the cart (replace 1 with the item id)
+DELETE {{baseUrl}}/cart/items/1/
+Authorization: Bearer {{accessToken}}
+
+### Clear the entire cart
+DELETE {{baseUrl}}/cart/
+Authorization: Bearer {{accessToken}}
+
+### ==================== Checkout (buyer only) ====================
+
+### Cart -> Order. Atomic, but not yet race-safe under concurrency (Phase 3).
+POST {{baseUrl}}/checkout/
+Authorization: Bearer {{accessToken}}

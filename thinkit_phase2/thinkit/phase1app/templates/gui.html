@@ -1,0 +1,562 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Thinkit Store — Test Console</title>
+<style>
+  :root { color-scheme: light; }
+  * { box-sizing: border-box; }
+  body { font-family: system-ui, Arial, sans-serif; margin: 0; background: #f4f5f7; color: #1c1e21; }
+  header { background: #1c1e21; color: #fff; padding: 12px 20px; display: flex; justify-content: space-between; align-items: center; }
+  header h1 { font-size: 18px; margin: 0; }
+  #userbar { font-size: 13px; }
+  #userbar button { margin-left: 10px; }
+  main { max-width: 960px; margin: 20px auto; padding: 0 16px; }
+  .card { background: #fff; border: 1px solid #ddd; border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+  h2 { font-size: 16px; margin-top: 0; }
+  label { display: block; font-size: 12px; color: #555; margin-top: 8px; }
+  input, select, textarea { width: 100%; padding: 6px 8px; margin-top: 2px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px; }
+  button { cursor: pointer; background: #2e6ef0; color: #fff; border: none; border-radius: 4px; padding: 7px 14px; font-size: 13px; margin-top: 10px; }
+  button.secondary { background: #6c757d; }
+  button.danger { background: #d64545; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; }
+  .row > * { flex: 1; min-width: 120px; }
+  table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 13px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #eee; }
+  #tabs { display: flex; gap: 6px; margin-bottom: 16px; flex-wrap: wrap; }
+  #tabs button { background: #e2e5eb; color: #1c1e21; margin: 0; }
+  #tabs button.active { background: #2e6ef0; color: #fff; }
+  .msg { font-size: 13px; padding: 8px; border-radius: 4px; margin-top: 8px; }
+  .msg.error { background: #fdeaea; color: #a02020; }
+  .msg.ok { background: #e7f7ea; color: #1a7a34; }
+  .pill { display: inline-block; background: #eee; border-radius: 10px; padding: 1px 8px; font-size: 11px; margin-left: 6px; }
+  .item-actions { display: flex; gap: 6px; }
+  .item-actions button { margin-top: 0; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Thinkit Store — Test Console</h1>
+  <div id="userbar"></div>
+</header>
+
+<main>
+  <div id="auth-section"></div>
+  <div id="main-section" style="display:none">
+    <div id="tabs"></div>
+    <div id="tab-content"></div>
+  </div>
+</main>
+
+<script>
+const API = '/api';
+let state = {
+  access: localStorage.getItem('thinkit_access') || null,
+  refresh: localStorage.getItem('thinkit_refresh') || null,
+  username: null,
+  role: null,
+};
+let activeTab = null;
+
+function saveTokens(access, refresh) {
+  state.access = access; state.refresh = refresh;
+  localStorage.setItem('thinkit_access', access);
+  localStorage.setItem('thinkit_refresh', refresh);
+}
+function clearSession() {
+  state = { access: null, refresh: null, username: null, role: null };
+  localStorage.removeItem('thinkit_access');
+  localStorage.removeItem('thinkit_refresh');
+}
+
+async function api(path, { method = 'GET', body, auth = true } = {}) {
+  if (location.protocol === 'file:') {
+    throw { status: 0, data: { detail: "This page must be opened via the Django server (e.g. http://127.0.0.1:8000/), not as a local file. Run 'python manage.py runserver' and open that URL." } };
+  }
+  const headers = { 'Content-Type': 'application/json' };
+  if (auth && state.access) headers['Authorization'] = 'Bearer ' + state.access;
+  let res;
+  try {
+    res = await fetch(API + path, { method, headers, body: body ? JSON.stringify(body) : undefined });
+  } catch (networkErr) {
+    throw { status: 0, data: { detail: `Could not reach the server at ${API}${path}. Is 'python manage.py runserver' running?` } };
+  }
+  const text = await res.text();
+  let data = null;
+  if (text) {
+    try {
+      data = JSON.parse(text);
+    } catch (parseErr) {
+      data = { detail: `Server returned a non-JSON response (HTTP ${res.status}). This usually means the request's Host header was rejected (ALLOWED_HOSTS) or hit the wrong URL.` };
+    }
+  }
+  if (!res.ok) throw { status: res.status, data };
+  return data;
+}
+
+function showMsg(container, text, ok = false) {
+  const el = document.createElement('div');
+  el.className = 'msg ' + (ok ? 'ok' : 'error');
+  el.textContent = typeof text === 'string' ? text : JSON.stringify(text);
+  container.appendChild(el);
+  setTimeout(() => el.remove(), 5000);
+}
+
+// ---------------- Auth ----------------
+
+function renderAuth() {
+  const el = document.getElementById('auth-section');
+  el.innerHTML = `
+    <div class="card">
+      <h2>Log in</h2>
+      <div class="row">
+        <div><label>Username</label><input id="login-username"></div>
+        <div><label>Password</label><input id="login-password" type="password"></div>
+      </div>
+      <button id="login-btn">Log in</button>
+      <div id="login-msg"></div>
+    </div>
+    <div class="card">
+      <h2>Sign up</h2>
+      <div class="row">
+        <div><label>Username</label><input id="signup-username"></div>
+        <div><label>Password</label><input id="signup-password" type="password"></div>
+        <div><label>Role</label>
+          <select id="signup-role"><option value="buyer">Buyer</option><option value="seller">Seller</option></select>
+        </div>
+      </div>
+      <button id="signup-btn" class="secondary">Sign up</button>
+      <div id="signup-msg"></div>
+    </div>
+  `;
+  document.getElementById('login-btn').onclick = doLogin;
+  document.getElementById('signup-btn').onclick = doSignup;
+}
+
+async function doLogin() {
+  const username = document.getElementById('login-username').value;
+  const password = document.getElementById('login-password').value;
+  const msgEl = document.getElementById('login-msg');
+  try {
+    const data = await api('/token/', { method: 'POST', body: { username, password }, auth: false });
+    saveTokens(data.access, data.refresh);
+    await loadMe();
+    boot();
+  } catch (e) {
+    showMsg(msgEl, e.data?.detail || 'Login failed', false);
+  }
+}
+
+async function doSignup() {
+  const username = document.getElementById('signup-username').value;
+  const password = document.getElementById('signup-password').value;
+  const role = document.getElementById('signup-role').value;
+  const msgEl = document.getElementById('signup-msg');
+  try {
+    await api('/auth/signup/', { method: 'POST', body: { username, password, role }, auth: false });
+    showMsg(msgEl, 'Account created. You can log in now.', true);
+  } catch (e) {
+    showMsg(msgEl, e.data?.detail || JSON.stringify(e.data), false);
+  }
+}
+
+async function loadMe() {
+  const me = await api('/auth/me/');
+  state.username = me.username;
+  state.role = me.role;
+}
+
+function logout() {
+  clearSession();
+  boot();
+}
+
+// ---------------- Tabs / shell ----------------
+
+function tabsForRole() {
+  const common = [['browse', 'Browse Items']];
+  if (state.role === 'buyer') return [...common, ['cart', 'Cart'], ['wallet', 'Wallet']];
+  if (state.role === 'seller') return [...common, ['inventory', 'My Inventory'], ['orders', 'Seller Orders']];
+  return common;
+}
+
+function renderShell() {
+  document.getElementById('userbar').innerHTML =
+    `${state.username} <span class="pill">${state.role}</span> <button id="logout-btn" class="secondary">Log out</button>`;
+  document.getElementById('logout-btn').onclick = logout;
+
+  const tabs = tabsForRole();
+  if (!activeTab || !tabs.find(t => t[0] === activeTab)) activeTab = tabs[0][0];
+  const tabsEl = document.getElementById('tabs');
+  tabsEl.innerHTML = tabs.map(([key, label]) =>
+    `<button data-tab="${key}" class="${key === activeTab ? 'active' : ''}">${label}</button>`).join('');
+  tabsEl.querySelectorAll('button').forEach(btn => {
+    btn.onclick = () => { activeTab = btn.dataset.tab; renderShell(); };
+  });
+
+  const renderers = { browse: renderBrowse, cart: renderCart, wallet: renderWallet, inventory: renderInventory, orders: renderSellerOrders };
+  renderers[activeTab]();
+}
+
+// ---------------- Browse items ----------------
+
+async function renderBrowse() {
+  const el = document.getElementById('tab-content');
+  el.innerHTML = `
+    <div class="card">
+      <h2>Browse Items</h2>
+      <div class="row">
+        <div><label>Search</label><input id="f-search"></div>
+        <div><label>Category</label><input id="f-category"></div>
+        <div><label>Min price</label><input id="f-minprice" type="number"></div>
+        <div><label>Max price</label><input id="f-maxprice" type="number"></div>
+      </div>
+      <div class="row">
+        <div><label>In stock only</label><select id="f-instock"><option value="">Any</option><option value="true">Yes</option></select></div>
+        <div><label>Sort by</label>
+          <select id="f-ordering">
+            <option value="-created_at">Newest</option>
+            <option value="price">Price (asc)</option>
+            <option value="-price">Price (desc)</option>
+            <option value="-average_rating">Rating (high to low)</option>
+          </select>
+        </div>
+      </div>
+      <button id="search-btn">Search</button>
+      ${state.role === 'seller' ? '<button id="add-item-btn" class="secondary">Add new item</button>' : ''}
+      <div id="add-item-form"></div>
+      <div id="browse-msg"></div>
+      <div id="items-list"></div>
+    </div>
+  `;
+  document.getElementById('search-btn').onclick = loadItems;
+  if (state.role === 'seller') document.getElementById('add-item-btn').onclick = renderAddItemForm;
+  loadItems();
+}
+
+function renderAddItemForm() {
+  const el = document.getElementById('add-item-form');
+  el.innerHTML = `
+    <div class="card">
+      <h2>New item</h2>
+      <div class="row">
+        <div><label>Name</label><input id="ni-name"></div>
+        <div><label>Category</label><input id="ni-category"></div>
+        <div><label>Price</label><input id="ni-price" type="number" step="0.01"></div>
+        <div><label>Stock</label><input id="ni-stock" type="number"></div>
+        <div><label>Unit</label><input id="ni-unit" value="pieces"></div>
+      </div>
+      <label>Description</label><textarea id="ni-description"></textarea>
+      <button id="ni-save">Create</button>
+    </div>
+  `;
+  document.getElementById('ni-save').onclick = async () => {
+    try {
+      await api('/items/', { method: 'POST', body: {
+        name: document.getElementById('ni-name').value,
+        category: document.getElementById('ni-category').value,
+        price: document.getElementById('ni-price').value,
+        stock: parseInt(document.getElementById('ni-stock').value || '0', 10),
+        unit: document.getElementById('ni-unit').value,
+        description: document.getElementById('ni-description').value,
+      }});
+      el.innerHTML = '';
+      loadItems();
+    } catch (e) {
+      showMsg(el, e.data?.detail || JSON.stringify(e.data), false);
+    }
+  };
+}
+
+async function loadItems() {
+  const params = new URLSearchParams();
+  const search = document.getElementById('f-search').value;
+  const category = document.getElementById('f-category').value;
+  const minPrice = document.getElementById('f-minprice').value;
+  const maxPrice = document.getElementById('f-maxprice').value;
+  const inStock = document.getElementById('f-instock').value;
+  const ordering = document.getElementById('f-ordering').value;
+  if (search) params.set('search', search);
+  if (category) params.set('category', category);
+  if (minPrice) params.set('min_price', minPrice);
+  if (maxPrice) params.set('max_price', maxPrice);
+  if (inStock) params.set('in_stock', inStock);
+  if (ordering) params.set('ordering', ordering);
+
+  const listEl = document.getElementById('items-list');
+  try {
+    const data = await api('/items/?' + params.toString());
+    const items = Array.isArray(data) ? data : data.results;
+    listEl.innerHTML = items.map(renderItemRow).join('') || '<p>No items found.</p>';
+    items.forEach(attachItemHandlers);
+  } catch (e) {
+    showMsg(listEl, e.data?.detail || 'Failed to load items', false);
+  }
+}
+
+function renderItemRow(item) {
+  const rating = item.average_rating != null ? item.average_rating.toFixed(1) : '—';
+  return `
+    <div class="card" id="item-${item.id}">
+      <strong>${item.name}</strong> <span class="pill">${item.category}</span>
+      <span class="pill">₹${item.price} / ${item.unit}</span>
+      <span class="pill">stock: ${item.stock}</span>
+      <span class="pill">⭐ ${rating}</span>
+      <p>${item.description || ''}</p>
+      <p style="font-size:12px;color:#777">seller: ${item.seller || '—'}</p>
+      ${state.role === 'buyer' ? `
+        <div class="row">
+          <input type="number" min="1" value="1" id="qty-${item.id}" style="max-width:80px">
+          <button data-add="${item.id}">Add to cart</button>
+        </div>
+        <div class="row">
+          <select id="rate-${item.id}"><option value="5">5</option><option value="4">4</option><option value="3">3</option><option value="2">2</option><option value="1">1</option></select>
+          <input id="review-${item.id}" placeholder="review text (optional)">
+          <button class="secondary" data-review="${item.id}">Rate item</button>
+        </div>
+      ` : ''}
+      <div id="item-msg-${item.id}"></div>
+    </div>
+  `;
+}
+
+function attachItemHandlers(item) {
+  const addBtn = document.querySelector(`[data-add="${item.id}"]`);
+  if (addBtn) addBtn.onclick = async () => {
+    const qty = parseInt(document.getElementById(`qty-${item.id}`).value || '1', 10);
+    const msgEl = document.getElementById(`item-msg-${item.id}`);
+    try {
+      await api('/cart/items/', { method: 'POST', body: { item_id: item.id, quantity: qty } });
+      showMsg(msgEl, 'Added to cart', true);
+    } catch (e) { showMsg(msgEl, e.data?.detail || 'Failed', false); }
+  };
+  const reviewBtn = document.querySelector(`[data-review="${item.id}"]`);
+  if (reviewBtn) reviewBtn.onclick = async () => {
+    const rating = parseInt(document.getElementById(`rate-${item.id}`).value, 10);
+    const review_text = document.getElementById(`review-${item.id}`).value;
+    const msgEl = document.getElementById(`item-msg-${item.id}`);
+    try {
+      await api(`/items/${item.id}/reviews/`, { method: 'POST', body: { rating, review_text } });
+      showMsg(msgEl, 'Review saved', true);
+      loadItems();
+    } catch (e) { showMsg(msgEl, e.data?.detail || 'You must purchase this item before rating it.', false); }
+  };
+}
+
+// ---------------- Cart ----------------
+
+async function renderCart() {
+  const el = document.getElementById('tab-content');
+  el.innerHTML = `<div class="card"><h2>Cart</h2><div id="cart-body">Loading…</div></div>`;
+  await loadCart();
+}
+
+async function loadCart() {
+  const body = document.getElementById('cart-body');
+  try {
+    const cart = await api('/cart/');
+    if (!cart.items.length) {
+      body.innerHTML = '<p>Cart is empty.</p>';
+      return;
+    }
+    body.innerHTML = `
+      <table>
+        <tr><th>Item</th><th>Qty</th><th>Subtotal</th><th></th></tr>
+        ${cart.items.map(ci => `
+          <tr>
+            <td>${ci.item.name}</td>
+            <td><input type="number" min="1" value="${ci.quantity}" style="max-width:70px" id="cqty-${ci.item.id}"></td>
+            <td>₹${ci.subtotal}</td>
+            <td class="item-actions">
+              <button data-update="${ci.item.id}">Update</button>
+              <button class="danger" data-remove="${ci.item.id}">Remove</button>
+            </td>
+          </tr>`).join('')}
+      </table>
+      <p><strong>Total: ₹${cart.total_price}</strong></p>
+      <div class="row">
+        <button id="clear-cart-btn" class="secondary">Clear cart</button>
+        <button id="checkout-btn">Checkout</button>
+      </div>
+      <div id="cart-msg"></div>
+    `;
+    cart.items.forEach(ci => {
+      document.querySelector(`[data-update="${ci.item.id}"]`).onclick = async () => {
+        const qty = parseInt(document.getElementById(`cqty-${ci.item.id}`).value, 10);
+        try { await api(`/cart/items/${ci.item.id}/`, { method: 'PATCH', body: { quantity: qty } }); loadCart(); }
+        catch (e) { showMsg(document.getElementById('cart-msg'), e.data?.detail || 'Failed', false); }
+      };
+      document.querySelector(`[data-remove="${ci.item.id}"]`).onclick = async () => {
+        await api(`/cart/items/${ci.item.id}/`, { method: 'DELETE' });
+        loadCart();
+      };
+    });
+    document.getElementById('clear-cart-btn').onclick = async () => { await api('/cart/', { method: 'DELETE' }); loadCart(); };
+    document.getElementById('checkout-btn').onclick = async () => {
+      const msgEl = document.getElementById('cart-msg');
+      try {
+        const order = await api('/checkout/', { method: 'POST' });
+        showMsg(msgEl, `Order #${order.id} placed. Total ₹${order.total_price}`, true);
+        loadCart();
+      } catch (e) { showMsg(msgEl, e.data?.detail || 'Checkout failed', false); }
+    };
+  } catch (e) {
+    body.innerHTML = '';
+    showMsg(body, e.data?.detail || 'Failed to load cart', false);
+  }
+}
+
+// ---------------- Wallet ----------------
+
+async function renderWallet() {
+  const el = document.getElementById('tab-content');
+  el.innerHTML = `
+    <div class="card">
+      <h2>Wallet</h2>
+      <div id="wallet-balance">Loading…</div>
+      <div class="row">
+        <input id="topup-amount" type="number" step="0.01" placeholder="Amount">
+        <button id="topup-btn">Top up</button>
+      </div>
+      <div id="wallet-msg"></div>
+    </div>
+  `;
+  const balanceEl = document.getElementById('wallet-balance');
+  const refresh = async () => {
+    const wallet = await api('/wallet/');
+    balanceEl.innerHTML = `<strong>Balance: ${wallet.currency} ${wallet.balance}</strong>`;
+  };
+  await refresh();
+  document.getElementById('topup-btn').onclick = async () => {
+    const amount = document.getElementById('topup-amount').value;
+    const msgEl = document.getElementById('wallet-msg');
+    try { await api('/wallet/topup/', { method: 'POST', body: { amount } }); await refresh(); showMsg(msgEl, 'Topped up', true); }
+    catch (e) { showMsg(msgEl, e.data?.detail || 'Failed', false); }
+  };
+}
+
+// ---------------- Seller inventory ----------------
+
+async function renderInventory() {
+  const el = document.getElementById('tab-content');
+  el.innerHTML = `<div class="card"><h2>My Inventory</h2><button id="add-item-btn2" class="secondary">Add new item</button><div id="add-item-form2"></div><div id="inventory-list">Loading…</div></div>`;
+  document.getElementById('add-item-btn2').onclick = () => renderAddItemForm2();
+  loadInventory();
+}
+
+function renderAddItemForm2() {
+  const el = document.getElementById('add-item-form2');
+  el.innerHTML = `
+    <div class="row">
+      <div><label>Name</label><input id="ni2-name"></div>
+      <div><label>Category</label><input id="ni2-category"></div>
+      <div><label>Price</label><input id="ni2-price" type="number" step="0.01"></div>
+      <div><label>Stock</label><input id="ni2-stock" type="number"></div>
+      <div><label>Unit</label><input id="ni2-unit" value="pieces"></div>
+    </div>
+    <label>Description</label><textarea id="ni2-description"></textarea>
+    <button id="ni2-save">Create</button>
+  `;
+  document.getElementById('ni2-save').onclick = async () => {
+    try {
+      await api('/items/', { method: 'POST', body: {
+        name: document.getElementById('ni2-name').value,
+        category: document.getElementById('ni2-category').value,
+        price: document.getElementById('ni2-price').value,
+        stock: parseInt(document.getElementById('ni2-stock').value || '0', 10),
+        unit: document.getElementById('ni2-unit').value,
+        description: document.getElementById('ni2-description').value,
+      }});
+      el.innerHTML = '';
+      loadInventory();
+    } catch (e) { showMsg(el, e.data?.detail || JSON.stringify(e.data), false); }
+  };
+}
+
+async function loadInventory() {
+  const listEl = document.getElementById('inventory-list');
+  try {
+    const data = await api('/seller/items/');
+    const items = Array.isArray(data) ? data : data.results;
+    listEl.innerHTML = items.length ? `
+      <table>
+        <tr><th>Name</th><th>Category</th><th>Price</th><th>Stock</th><th>Rating</th><th></th></tr>
+        ${items.map(it => `
+          <tr>
+            <td>${it.name} ${it.low_stock ? '<span class="pill">low stock</span>' : ''}</td>
+            <td>${it.category}</td>
+            <td>₹${it.price}</td>
+            <td><input type="number" value="${it.stock}" style="max-width:80px" id="stock-${it.id}"></td>
+            <td>${it.average_rating != null ? it.average_rating.toFixed(1) : '—'}</td>
+            <td class="item-actions">
+              <button data-save-stock="${it.id}">Save</button>
+              <button class="danger" data-delete-item="${it.id}">Delete</button>
+            </td>
+          </tr>`).join('')}
+      </table>` : '<p>No items yet.</p>';
+    items.forEach(it => {
+      document.querySelector(`[data-save-stock="${it.id}"]`).onclick = async () => {
+        const stock = parseInt(document.getElementById(`stock-${it.id}`).value, 10);
+        try { await api(`/items/${it.id}/`, { method: 'PATCH', body: { stock } }); loadInventory(); }
+        catch (e) { showMsg(listEl, e.data?.detail || 'Failed', false); }
+      };
+      document.querySelector(`[data-delete-item="${it.id}"]`).onclick = async () => {
+        try { await api(`/items/${it.id}/`, { method: 'DELETE' }); loadInventory(); }
+        catch (e) { showMsg(listEl, e.data?.detail || 'Cannot delete (it may have order history).', false); }
+      };
+    });
+  } catch (e) {
+    listEl.innerHTML = '';
+    showMsg(listEl, e.data?.detail || 'Failed to load inventory', false);
+  }
+}
+
+// ---------------- Seller orders ----------------
+
+async function renderSellerOrders() {
+  const el = document.getElementById('tab-content');
+  el.innerHTML = `<div class="card"><h2>Orders for my items</h2><div id="seller-orders-list">Loading…</div></div>`;
+  const listEl = document.getElementById('seller-orders-list');
+  try {
+    const data = await api('/seller/orders/');
+    const rows = Array.isArray(data) ? data : data.results;
+    listEl.innerHTML = rows.length ? `
+      <table>
+        <tr><th>Order</th><th>Buyer</th><th>Item</th><th>Qty</th><th>Price</th><th>Status</th><th>When</th></tr>
+        ${rows.map(r => `
+          <tr>
+            <td>#${r.order}</td><td>${r.buyer}</td><td>${r.item_name}</td>
+            <td>${r.quantity}</td><td>₹${r.price_at_purchase}</td>
+            <td>${r.order_status}</td><td>${new Date(r.ordered_at).toLocaleString()}</td>
+          </tr>`).join('')}
+      </table>` : '<p>No orders yet.</p>';
+  } catch (e) {
+    showMsg(listEl, e.data?.detail || 'Failed to load orders', false);
+  }
+}
+
+// ---------------- Boot ----------------
+
+async function boot() {
+  if (!state.access) {
+    document.getElementById('auth-section').style.display = '';
+    document.getElementById('main-section').style.display = 'none';
+    renderAuth();
+    return;
+  }
+  try {
+    if (!state.role) await loadMe();
+    document.getElementById('auth-section').style.display = 'none';
+    document.getElementById('main-section').style.display = '';
+    renderShell();
+  } catch (e) {
+    clearSession();
+    boot();
+  }
+}
+
+boot();
+</script>
+</body>
+</html>

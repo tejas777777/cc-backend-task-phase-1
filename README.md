@@ -1,0 +1,1 @@
+This is the master repository for the Coding Club Backend project, which is split into multiple phases. There are folders for each phase. Refer to the respective readme files of those phase-wise folders for more details on each phase.

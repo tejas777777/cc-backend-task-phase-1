@@ -1,0 +1,18 @@
+
+# Database Driver (if using PostgreSQL)
+psycopg2-binary>=2.9.9
+
+# Production WSGI Server
+gunicorn>=21.2.0
+
+# Environment Variables Configuration
+django-environ>=0.11.2
+
+# Additional project dependencies (Add ONLY what your app imports)
+requests>=2.31.0
+
+Django>=5.0,<6.0
+djangorestframework>=3.15.0
+djangorestframework-simplejwt==5.5.1
+django-filter==26.1
+PyJWT==2.13.0

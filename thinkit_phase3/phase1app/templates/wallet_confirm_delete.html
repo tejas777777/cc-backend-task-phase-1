@@ -1,0 +1,7 @@
+html
+<h2>Are you sure you want to delete "{{ wallet.username }}"?</h2>
+<form method="POST">
+    {% csrf_token %}
+    <button type="submit">Yes, Delete</button>
+</form>
+<a href="{% url 'wallet_list' %}">Cancel</a>
